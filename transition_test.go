@@ -2,12 +2,11 @@ package transition_test
 
 import (
 	"errors"
-	"os"
 	"testing"
 
+	"github.com/jinzhu/gorm"
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/jinzhu/gorm"
 	"github.com/qor/qor/test/utils"
 	"github.com/qor/transition"
 )
@@ -19,262 +18,247 @@ type Order struct {
 	transition.Transition
 }
 
-var (
-	testdb *gorm.DB
+var db = utils.TestDB()
 
-	tables []interface{}
-
-	OrderStateMachine = transition.New(&Order{})
-)
-
-func getTables() {
-	tables = []interface{}{
-		&Order{},
-		&transition.StateChangeLog{},
-	}
-
-}
-
-// TODO: truncate existing table rather than drop&create table to speed up test ?
-func ResetDb() {
-	getTables()
-
-	for _, table := range tables {
-		if err := testdb.DropTableIfExists(table).Error; err != nil {
+func init() {
+	for _, model := range []interface{}{&Order{}, &transition.StateChangeLog{}} {
+		if err := db.DropTableIfExists(model).Error; err != nil {
 			panic(err)
 		}
 
-		if err := testdb.AutoMigrate(table).Error; err != nil {
+		if err := db.AutoMigrate(model).Error; err != nil {
 			panic(err)
 		}
 	}
 }
 
-const (
-	OrderStateDraft              = "draft"
-	OrderStatePaying             = "paying"
-	OrderStatePaid               = "paid"
-	OrderStateProcessed          = "processed"
-	OrderStateDelivered          = "delivered"
-	OrderStateCancelled          = "cancelled"
-	OrderStateCancelledAfterPaid = "cancelled after paid"
+func getStateMachine() *transition.StateMachine {
+	var orderStateMachine = transition.New(&Order{})
 
-	OrderEventCheckout = "checkout"
-	OrderEventCancel   = "cancel"
-)
+	orderStateMachine.Initial("draft")
+	orderStateMachine.State("checkout")
+	orderStateMachine.State("paid")
+	orderStateMachine.State("processed")
+	orderStateMachine.State("delivered")
+	orderStateMachine.State("cancelled")
+	orderStateMachine.State("paid_cancelled")
 
-func TestMain(m *testing.M) {
-	testdb = utils.TestDB()
-	ResetDb()
+	orderStateMachine.Event("checkout").To("checkout").From("draft")
+	orderStateMachine.Event("pay").To("paid").From("checkout")
 
-	OrderStateMachine.Initial(OrderStateDraft)
-
-	OrderStateMachine.Event(OrderEventCheckout).To(OrderStatePaying).From(OrderStateDraft)
-
-	test := m.Run()
-
-	os.Exit(test)
+	return orderStateMachine
 }
 
-func CreateOrderAndExecuteTransition(order *Order, event string, t *testing.T, raiseTriggerError bool) {
-	if err := testdb.Save(order).Error; err != nil {
-		t.Errorf(err.Error())
+func CreateOrderAndExecuteTransition(transition *transition.StateMachine, event string, order *Order) error {
+	if err := db.Save(order).Error; err != nil {
+		return err
 	}
 
-	if err := OrderStateMachine.Trigger(event, order, testdb); err != nil && raiseTriggerError {
-		t.Errorf(err.Error())
+	if err := transition.Trigger(event, order, db); err != nil {
+		return err
 	}
+	return nil
 }
 
 func TestStateTransition(t *testing.T) {
 	order := &Order{}
-	CreateOrderAndExecuteTransition(order, OrderEventCheckout, t, true)
 
-	if order.State != OrderStatePaying {
-		t.Errorf("state doesn't transfered successfully")
+	if err := getStateMachine().Trigger("checkout", order, db); err != nil {
+		t.Errorf("should not raise any error when trigger event checkout")
 	}
-}
 
-func TestStateChangeLog(t *testing.T) {
-	order := &Order{}
-	CreateOrderAndExecuteTransition(order, OrderEventCheckout, t, true)
+	if order.GetState() != "checkout" {
+		t.Errorf("state doesn't changed to checkout")
+	}
 
-	var stateChangeLogs = transition.GetStateChangeLogs(order, testdb)
+	var stateChangeLogs = transition.GetStateChangeLogs(order, db)
 	if len(stateChangeLogs) != 1 {
 		t.Errorf("should get one state change log with GetStateChangeLogs")
 	} else {
 		var stateChangeLog = stateChangeLogs[0]
 
-		if stateChangeLog.From != OrderStateDraft {
+		if stateChangeLog.From != "draft" {
 			t.Errorf("state from not set")
 		}
 
-		if stateChangeLog.To != OrderStatePaying {
+		if stateChangeLog.To != "checkout" {
 			t.Errorf("state to not set")
 		}
 	}
 }
 
 func TestMultipleTransitionWithOneEvent(t *testing.T) {
-	cancellEvent := OrderStateMachine.Event(OrderEventCancel)
-	cancellEvent.To(OrderStateCancelled).From(OrderStateDraft, OrderStatePaying)
-	cancellEvent.To(OrderStateCancelledAfterPaid).From(OrderStatePaid, OrderStateProcessed)
+	orderStateMachine := getStateMachine()
+	cancellEvent := orderStateMachine.Event("cancel")
+	cancellEvent.To("cancelled").From("draft", "checkout")
+	cancellEvent.To("paid_cancelled").From("paid", "processed")
 
-	unpaidOrder := &Order{}
-	unpaidOrder.State = OrderStateDraft
-	CreateOrderAndExecuteTransition(unpaidOrder, OrderEventCancel, t, true)
+	unpaidOrder1 := &Order{}
+	if err := orderStateMachine.Trigger("cancel", unpaidOrder1, db); err != nil {
+		t.Errorf("should not raise any error when trigger event cancel")
+	}
 
-	if unpaidOrder.State != OrderStateCancelled {
+	if unpaidOrder1.State != "cancelled" {
+		t.Errorf("order status doesn't transitioned correctly")
+	}
+
+	unpaidOrder2 := &Order{}
+	unpaidOrder2.State = "draft"
+	if err := orderStateMachine.Trigger("cancel", unpaidOrder2, db); err != nil {
+		t.Errorf("should not raise any error when trigger event cancel")
+	}
+
+	if unpaidOrder2.State != "cancelled" {
 		t.Errorf("order status doesn't transitioned correctly")
 	}
 
 	paidOrder := &Order{}
-	paidOrder.State = OrderStatePaid
-	CreateOrderAndExecuteTransition(paidOrder, OrderEventCancel, t, true)
+	paidOrder.State = "paid"
+	if err := orderStateMachine.Trigger("cancel", paidOrder, db); err != nil {
+		t.Errorf("should not raise any error when trigger event cancel")
+	}
 
-	if paidOrder.State != OrderStateCancelledAfterPaid {
+	if paidOrder.State != "paid_cancelled" {
 		t.Errorf("order status doesn't transitioned correctly")
 	}
 }
 
-func TestStateEnterCallback(t *testing.T) {
-	addressAfterCheckout := "I'm an address should be set after checkout"
-	OrderStateMachine.State(OrderStatePaying).Enter(func(order interface{}, tx *gorm.DB) (err error) {
-		order.(*Order).Address = addressAfterCheckout
-		return
+func TestStateCallbacks(t *testing.T) {
+	orderStateMachine := getStateMachine()
+	order := &Order{}
+
+	address1 := "I'm an address should be set when enter checkout"
+	address2 := "I'm an address should be set when exit checkout"
+	orderStateMachine.State("checkout").Enter(func(order interface{}, tx *gorm.DB) error {
+		order.(*Order).Address = address1
+		return nil
+	}).Exit(func(order interface{}, tx *gorm.DB) error {
+		order.(*Order).Address = address2
+		return nil
 	})
 
-	order := &Order{}
-	CreateOrderAndExecuteTransition(order, OrderEventCheckout, t, true)
+	if err := orderStateMachine.Trigger("checkout", order, db); err != nil {
+		t.Errorf("should not raise any error when trigger event checkout")
+	}
 
-	if order.Address != addressAfterCheckout {
+	if order.Address != address1 {
 		t.Errorf("enter callback not triggered")
 	}
-}
 
-func TestStateExitCallback(t *testing.T) {
-	var prevState string
-	OrderStateMachine.State(OrderStateDraft).Exit(func(order interface{}, tx *gorm.DB) (err error) {
-		prevState = order.(*Order).State
-		return
-	})
+	if err := orderStateMachine.Trigger("pay", order, db); err != nil {
+		t.Errorf("should not raise any error when trigger event pay")
+	}
 
-	order := &Order{}
-	order.State = OrderStateDraft
-	CreateOrderAndExecuteTransition(order, OrderEventCheckout, t, true)
-
-	if prevState != OrderStateDraft {
-		t.Errorf("exit callback triggered after state change")
+	if order.Address != address2 {
+		t.Errorf("exit callback not triggered")
 	}
 }
 
-func TestEventBeforeCallback(t *testing.T) {
-	var prevState string
-	OrderStateMachine.Event(OrderEventCheckout).To(OrderStatePaying).From(OrderStateDraft).Before(func(order interface{}, tx *gorm.DB) (err error) {
+func TestEventCallbacks(t *testing.T) {
+	var (
+		order                 = &Order{}
+		orderStateMachine     = getStateMachine()
+		prevState, afterState string
+	)
+
+	orderStateMachine.Event("checkout").To("checkout").From("draft").Before(func(order interface{}, tx *gorm.DB) error {
 		prevState = order.(*Order).State
-		return
+		return nil
+	}).After(func(order interface{}, tx *gorm.DB) error {
+		afterState = order.(*Order).State
+		return nil
 	})
 
-	order := &Order{}
-	order.State = OrderStateDraft
-	CreateOrderAndExecuteTransition(order, OrderEventCheckout, t, true)
+	order.State = "draft"
+	if err := orderStateMachine.Trigger("checkout", order, nil); err != nil {
+		t.Errorf("should not raise any error when trigger event checkout")
+	}
 
-	if prevState != OrderStateDraft {
+	if prevState != "draft" {
 		t.Errorf("Before callback triggered after state change")
 	}
-}
 
-func TestEventAfterCallback(t *testing.T) {
-	addressAfterCheckout := "I'm an address should be set after checkout"
-	OrderStateMachine.Event(OrderEventCheckout).To(OrderStatePaying).From(OrderStateDraft).After(func(order interface{}, tx *gorm.DB) (err error) {
-		order.(*Order).Address = addressAfterCheckout
-		return
-	})
-
-	order := &Order{}
-	CreateOrderAndExecuteTransition(order, OrderEventCheckout, t, true)
-
-	if order.Address != addressAfterCheckout {
-		t.Errorf("After callback not triggered")
+	if afterState != "checkout" {
+		t.Errorf("After callback triggered after state change")
 	}
 }
 
-func TestRollbackTransitionOnEnterCallbackError(t *testing.T) {
-	OrderStateMachine.State(OrderStatePaying).Enter(func(order interface{}, tx *gorm.DB) (err error) {
-		order.(*Order).Address = "an address"
+func TestTransitionOnEnterCallbackError(t *testing.T) {
+	var (
+		order             = &Order{}
+		orderStateMachine = getStateMachine()
+	)
+
+	orderStateMachine.State("checkout").Enter(func(order interface{}, tx *gorm.DB) (err error) {
 		return errors.New("intentional error")
 	})
 
-	order := &Order{}
-	order.State = OrderStateDraft
-	CreateOrderAndExecuteTransition(order, OrderEventCheckout, t, false)
+	if err := orderStateMachine.Trigger("checkout", order, nil); err == nil {
+		t.Errorf("should raise an intentional error")
+	}
 
-	testdb.First(&order, order.Id)
-	if order.State != OrderStateDraft {
+	if order.State != "draft" {
 		t.Errorf("state transitioned on Enter callback error")
 	}
-
-	if order.Address != "" {
-		t.Errorf("attribute changed on Enter callback error")
-	}
 }
 
-func TestRollbackTransitionOnExitCallbackError(t *testing.T) {
-	OrderStateMachine.State(OrderStateDraft).Exit(func(order interface{}, tx *gorm.DB) (err error) {
-		order.(*Order).Address = "an address"
+func TestTransitionOnExitCallbackError(t *testing.T) {
+	var (
+		order             = &Order{}
+		orderStateMachine = getStateMachine()
+	)
+
+	orderStateMachine.State("checkout").Exit(func(order interface{}, tx *gorm.DB) (err error) {
 		return errors.New("intentional error")
 	})
 
-	order := &Order{}
-	order.State = OrderStateDraft
-	CreateOrderAndExecuteTransition(order, OrderEventCheckout, t, false)
-
-	testdb.First(&order, order.Id)
-	if order.State != OrderStateDraft {
-		t.Errorf("state transitioned on Exit callback error")
+	if err := orderStateMachine.Trigger("checkout", order, nil); err != nil {
+		t.Errorf("should not raise error when checkout")
 	}
 
-	if order.Address != "" {
-		t.Errorf("attribute changed on Exit callback error")
-	}
-}
-
-func TestRollbackTransitionOnBeforeCallbackError(t *testing.T) {
-	OrderStateMachine.Event(OrderEventCheckout).To(OrderStatePaying).From(OrderStateDraft).Before(func(order interface{}, tx *gorm.DB) (err error) {
-		order.(*Order).Address = "an address"
-		return errors.New("intentional error")
-	})
-
-	order := &Order{}
-	order.State = OrderStateDraft
-	CreateOrderAndExecuteTransition(order, OrderEventCheckout, t, false)
-
-	testdb.First(&order, order.Id)
-	if order.State != OrderStateDraft {
-		t.Errorf("state transitioned on Before callback error")
+	if err := orderStateMachine.Trigger("pay", order, nil); err == nil {
+		t.Errorf("should raise an intentional error")
 	}
 
-	if order.Address != "" {
-		t.Errorf("attribute changed on Before callback error")
+	if order.State != "checkout" {
+		t.Errorf("state transitioned on Enter callback error")
 	}
 }
 
-func TestRollbackTransitionOnAfterCallbackError(t *testing.T) {
-	OrderStateMachine.Event(OrderEventCheckout).To(OrderStatePaying).From(OrderStateDraft).After(func(order interface{}, tx *gorm.DB) (err error) {
-		order.(*Order).Address = "an address"
+func TestEventOnBeforeCallbackError(t *testing.T) {
+	var (
+		order             = &Order{}
+		orderStateMachine = getStateMachine()
+	)
+
+	orderStateMachine.Event("checkout").To("checkout").From("draft").Before(func(order interface{}, tx *gorm.DB) error {
 		return errors.New("intentional error")
 	})
 
-	order := &Order{}
-	order.State = OrderStateDraft
-	CreateOrderAndExecuteTransition(order, OrderEventCheckout, t, false)
-
-	testdb.First(&order, order.Id)
-	if order.State != OrderStateDraft {
-		t.Errorf("state transitioned on Before callback error")
+	if err := orderStateMachine.Trigger("checkout", order, nil); err == nil {
+		t.Errorf("should raise an intentional error")
 	}
 
-	if order.Address != "" {
-		t.Errorf("attribute changed on Before callback error")
+	if order.State != "draft" {
+		t.Errorf("state transitioned on Enter callback error")
+	}
+}
+
+func TestEventOnAfterCallbackError(t *testing.T) {
+	var (
+		order             = &Order{}
+		orderStateMachine = getStateMachine()
+	)
+
+	orderStateMachine.Event("checkout").To("checkout").From("draft").After(func(order interface{}, tx *gorm.DB) error {
+		return errors.New("intentional error")
+	})
+
+	if err := orderStateMachine.Trigger("checkout", order, nil); err == nil {
+		t.Errorf("should raise an intentional error")
+	}
+
+	if order.State != "draft" {
+		t.Errorf("state transitioned on Enter callback error")
 	}
 }

@@ -1,32 +1,33 @@
 # Transition
 
-Transition is a Golang state machine implementation. rely on [GORM](github.com/jinzhu/gorm)
+Transition is a Golang state machine implementation.
 
-# Installation
-
-```
-go get github.com/qor/transition
-```
+Transition could be used standalone, but works better with [GORM](github.com/jinzhu/gorm) models, it could keep state change logs into database automatically.
 
 # Usage
 
-### Include transition to model, it will add State, StateChangeLogs to the model
+### Using Transition
+
+Add Transition to your struct, it will add some state machine related methods to the struct
 
 ```go
-type Order struct {
-  gorm.Model
-  ...
+import "github.com/qor/transition"
 
-  // Add transition to Order
+type Order struct {
+  ID uint
   transition.Transition
-  // type Transition struct {
-  //   State           string
-  //   StateChangeLogs []StateChangeLog `sql:"-"`
-  // }
 }
+
+var order Order
+
+// Get Current State
+order.GetState()
+
+// Set State
+order.SetState("finished")
 ```
 
-### Define states and events for a model
+### Define States and Events
 
 ```go
 var OrderStateMachine = transition.New(&Order{})
@@ -47,8 +48,10 @@ OrderStateMachine.State("paid").Enter(func(order interface{}, tx *gorm.DB) error
   return
 })
 
+// Define more States
 OrderStateMachine.State("cancelled")
 OrderStateMachine.State("paid_cancelled")
+
 
 // Define an Event
 OrderStateMachine.Event("checkout").To("checkout").From("draft")
@@ -73,9 +76,12 @@ cancellEvent.To("paid_cancelled").From("paid").After(func(order interface{}, tx 
 ### Trigger an Event
 
 ```go
-// func (sm *StateMachine) Trigger(name string, value Stater, tx *gorm.DB, notes ...string) error
-// notes will be used to generate state change logs
+// func (*StateMachine) Trigger(name string, value Stater, tx *gorm.DB, notes ...string) error
 OrderStatemachine.Trigger("paid", &order, db, "charged offline by jinzhu")
+// notes will be used to generate state change logs when works with GORM
+
+// When use without GORM, just pass nil to the db, like
+OrderStatemachine.Trigger("cancel", &order, nil)
 
 OrderStatemachine.Trigger("cancel", &order, db)
 // order's state will be changed to cancelled if current state is "draft"
@@ -84,10 +90,16 @@ OrderStatemachine.Trigger("cancel", &order, db)
 
 ## State change logs
 
+When works with GORM, it will keep all state change logs into database, use GetStateChangeLogs to get those logs
+
 ```go
-// For each state change, transition will auto create a change log for this
-// use GetStateChangeLogs to get those logs
-transition.GetStateChangeLogs(&order, db)
+var stateChangeLogs = transition.GetStateChangeLogs(&order, db)
+
+// type StateChangeLog struct {
+// 	 From       string  // from state
+// 	 To         string  // to state
+// 	 Note       string  // notes
+// }
 ```
 
 ## License

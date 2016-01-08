@@ -15,10 +15,12 @@ type Transition struct {
 	StateChangeLogs []StateChangeLog `sql:"-"`
 }
 
+// SetState set state to Stater, just set, won't save it into database
 func (transition *Transition) SetState(name string) {
 	transition.State = name
 }
 
+// GetState get current state from
 func (transition Transition) GetState() string {
 	return transition.State
 }
@@ -59,12 +61,20 @@ func (sm *StateMachine) Event(name string) *Event {
 }
 
 func (sm *StateMachine) Trigger(name string, value Stater, tx *gorm.DB, notes ...string) error {
-	stateWas := value.GetState()
-	if stateWas == "" {
-		stateWas = sm.initialState
+	var (
+		newTx    *gorm.DB
+		stateWas = value.GetState()
+	)
+
+	if tx != nil {
+		newTx = tx.New()
 	}
 
-	newTx := tx.New()
+	if stateWas == "" {
+		stateWas = sm.initialState
+		value.SetState(sm.initialState)
+	}
+
 	if event := sm.events[name]; event != nil {
 		var matchedTransitions []*EventTransition
 		for _, transition := range event.transitions {
@@ -107,6 +117,7 @@ func (sm *StateMachine) Trigger(name string, value Stater, tx *gorm.DB, notes ..
 			if state, ok := sm.states[transition.to]; ok {
 				for _, enter := range state.enters {
 					if err := enter(value, newTx); err != nil {
+						value.SetState(stateWas)
 						return err
 					}
 				}
@@ -115,19 +126,24 @@ func (sm *StateMachine) Trigger(name string, value Stater, tx *gorm.DB, notes ..
 			// Transition: after
 			for _, after := range transition.afters {
 				if err := after(value, newTx); err != nil {
+					value.SetState(stateWas)
 					return err
 				}
 			}
 
-			scope := newTx.NewScope(value)
-			log := StateChangeLog{
-				ReferTable: scope.TableName(),
-				ReferId:    GenerateReferenceKey(value, tx),
-				From:       stateWas,
-				To:         transition.to,
-				Note:       strings.Join(notes, ""),
+			if newTx != nil {
+				scope := newTx.NewScope(value)
+				log := StateChangeLog{
+					ReferTable: scope.TableName(),
+					ReferId:    GenerateReferenceKey(value, tx),
+					From:       stateWas,
+					To:         transition.to,
+					Note:       strings.Join(notes, ""),
+				}
+				return newTx.Save(&log).Error
+			} else {
+				return nil
 			}
-			return newTx.Save(&log).Error
 		}
 	}
 	return fmt.Errorf("failed to perform event %s from state %s", name, stateWas)
