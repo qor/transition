@@ -2,7 +2,7 @@
 
 Transition is a Golang state machine implementation.
 
-Transition could be used standalone, but works better with [GORM](github.com/jinzhu/gorm) models, it could keep state change logs into database automatically.
+Transition could be used standalone, but works better with [GORM](https://github.com/jinzhu/gorm) models, it could keep state change logs into database automatically.
 
 # Usage
 
