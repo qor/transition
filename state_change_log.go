@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/jinzhu/gorm"
-	"github.com/qor/qor/audited"
+	"github.com/qor/audited"
 )
 
 type StateChangeLog struct {
