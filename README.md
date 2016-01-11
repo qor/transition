@@ -93,6 +93,8 @@ OrderStatemachine.Trigger("cancel", &order, db)
 When works with GORM, it will keep all state change logs into database, use GetStateChangeLogs to get those logs
 
 ```go
+db.AutoMigrate(&transition.StateChangeLog{})
+
 var stateChangeLogs = transition.GetStateChangeLogs(&order, db)
 
 // type StateChangeLog struct {
