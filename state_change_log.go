@@ -8,10 +8,11 @@ import (
 	"github.com/qor/audited"
 )
 
+// StateChangeLog a model that used to keep state change logs
 type StateChangeLog struct {
 	gorm.Model
 	ReferTable string
-	ReferId    string
+	ReferID    string
 	From       string
 	To         string
 	Note       string `sql:"size:1024"`
@@ -32,7 +33,7 @@ func GenerateReferenceKey(model interface{}, db *gorm.DB) string {
 	return strings.Join(primaryValues, "::")
 }
 
-// GetChangeLogs get state change logs
+// GetStateChangeLogs get state change logs
 func GetStateChangeLogs(model interface{}, db *gorm.DB) []StateChangeLog {
 	var (
 		changelogs []StateChangeLog

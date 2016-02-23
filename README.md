@@ -2,13 +2,15 @@
 
 Transition is a Golang state machine implementation.
 
-Transition could be used standalone, but works better with [GORM](https://github.com/jinzhu/gorm) models, it could keep state change logs into database automatically.
+Transition could be used standalone, but works better with [GORM](https://github.com/jinzhu/gorm) models, it will keep state change logs into database automatically.
+
+[![GoDoc](https://godoc.org/github.com/qor/transition?status.svg)](https://godoc.org/github.com/qor/transition)
 
 # Usage
 
-### Using Transition
+### Enable Transition for your struct
 
-Add Transition to your struct, it will add some state machine related methods to the struct
+Embed `Transition` into your struct, it will enable state machine feature to the struct
 
 ```go
 import "github.com/qor/transition"
@@ -17,14 +19,6 @@ type Order struct {
   ID uint
   transition.Transition
 }
-
-var order Order
-
-// Get Current State
-order.GetState()
-
-// Set State
-order.SetState("finished")
 ```
 
 ### Define States and Events
@@ -88,13 +82,27 @@ OrderStatemachine.Trigger("cancel", &order, db)
 // order's state will be changed to paid_cancelled if current state is "paid"
 ```
 
-## State change logs
-
-When works with GORM, it will keep all state change logs into database, use GetStateChangeLogs to get those logs
+### Get/Set State
 
 ```go
+var order Order
+
+// Get Current State
+order.GetState()
+
+// Set State
+order.SetState("finished") // this will only update order's state, won't save it into database
+```
+
+## State change logs
+
+When works with GORM, it will keep all state change logs into database, use `GetStateChangeLogs` to get those logs
+
+```go
+// create the table used to store logs first
 db.AutoMigrate(&transition.StateChangeLog{})
 
+// get order's state change logs
 var stateChangeLogs = transition.GetStateChangeLogs(&order, db)
 
 // type StateChangeLog struct {
