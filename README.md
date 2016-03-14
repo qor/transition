@@ -2,7 +2,7 @@
 
 Transition is a Golang state machine implementation.
 
-Transition could be used standalone, but works better with [GORM](https://github.com/jinzhu/gorm) models, it will keep state change logs into database automatically.
+Transition can be used standalone, but it works very nicely with [GORM](https://github.com/jinzhu/gorm) models. When integrated with GORM, it will also store state change logs in the database automatically.
 
 [![GoDoc](https://godoc.org/github.com/qor/transition?status.svg)](https://godoc.org/github.com/qor/transition)
 
@@ -10,7 +10,7 @@ Transition could be used standalone, but works better with [GORM](https://github
 
 ### Enable Transition for your struct
 
-Embed `Transition` into your struct, it will enable state machine feature to the struct
+Embed `Transition` into your struct, it will enable the state machine feature for the struct:
 
 ```go
 import "github.com/qor/transition"
@@ -32,7 +32,7 @@ OrderStateMachine.Initial("draft")
 // Define a State
 OrderStateMachine.State("checkout")
 
-// Define another State and what to do when enter a state and exit a state.
+// Define another State and what to do when entering and exiting that state.
 OrderStateMachine.State("paid").Enter(func(order interface{}, tx *gorm.DB) error {
   // To get order object use 'order.(*Order)'
   // business logic here
@@ -50,7 +50,7 @@ OrderStateMachine.State("paid_cancelled")
 // Define an Event
 OrderStateMachine.Event("checkout").To("checkout").From("draft")
 
-// Define another event and what to do before perform transition and after transition.
+// Define another event and what to do before and after performing the transition.
 OrderStateMachine.Event("paid").To("paid").From("checkout").Before(func(order interface{}, tx *gorm.DB) error {
   // business logic here
   return
@@ -74,7 +74,7 @@ cancellEvent.To("paid_cancelled").From("paid").After(func(order interface{}, tx 
 OrderStatemachine.Trigger("paid", &order, db, "charged offline by jinzhu")
 // notes will be used to generate state change logs when works with GORM
 
-// When use without GORM, just pass nil to the db, like
+// When using without GORM, just pass nil to the db, like
 OrderStatemachine.Trigger("cancel", &order, nil)
 
 OrderStatemachine.Trigger("cancel", &order, db)
@@ -96,7 +96,7 @@ order.SetState("finished") // this will only update order's state, won't save it
 
 ## State change logs
 
-When works with GORM, it will keep all state change logs into database, use `GetStateChangeLogs` to get those logs
+When working with GORM, it will store all state change logs in the database, use `GetStateChangeLogs` to get those logs:
 
 ```go
 // create the table used to store logs first
