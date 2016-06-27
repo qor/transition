@@ -222,7 +222,9 @@ func (transition *Transition) ConfigureQorResource(res resource.Resourcer) {
 			res.Meta(&admin.Meta{Name: "State", Permission: roles.Deny(roles.Update, roles.Anyone).Deny(roles.Create, roles.Anyone)})
 		}
 
-		res.NewAttrs(res.NewAttrs(), "-State", "-StateChangeLogs")
-		res.EditAttrs(res.EditAttrs(), "-State", "-StateChangeLogs")
+		res.IndexAttrs(res.IndexAttrs(), "-StateChangeLogs")
+		res.ShowAttrs(res.ShowAttrs(), "-StateChangeLogs", false)
+		res.NewAttrs(res.NewAttrs(), "-StateChangeLogs")
+		res.EditAttrs(res.EditAttrs(), "-StateChangeLogs")
 	}
 }
