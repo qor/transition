@@ -219,7 +219,10 @@ func (transition *EventTransition) After(fc func(value interface{}, tx *gorm.DB)
 func (transition *Transition) ConfigureQorResource(res resource.Resourcer) {
 	if res, ok := res.(*admin.Resource); ok {
 		if res.GetMeta("State") == nil {
-			res.Meta(&admin.Meta{Name: "State", Permission: roles.Deny(roles.Update, roles.Anyone)})
+			res.Meta(&admin.Meta{Name: "State", Permission: roles.Deny(roles.Update, roles.Anyone).Deny(roles.Create, roles.Anyone)})
 		}
+
+		res.NewAttrs(res.NewAttrs(), "-State", "-StateChangeLogs")
+		res.EditAttrs(res.EditAttrs(), "-State", "-StateChangeLogs")
 	}
 }
