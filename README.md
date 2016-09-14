@@ -53,10 +53,10 @@ OrderStateMachine.Event("checkout").To("checkout").From("draft")
 // Define another event and what to do before and after performing the transition.
 OrderStateMachine.Event("paid").To("paid").From("checkout").Before(func(order interface{}, tx *gorm.DB) error {
   // business logic here
-  return
+  return nil
 }).After(func(order interface{}, tx *gorm.DB) error {
   // business logic here
-  return
+  return nil
 })
 
 // Different state transitions for one event
