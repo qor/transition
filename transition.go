@@ -55,9 +55,9 @@ func (sm *StateMachine) Initial(name string) *StateMachine {
 
 // State define a state
 func (sm *StateMachine) State(name string) *State {
-	event := &State{Name: name}
-	sm.states[name] = event
-	return event
+	state := &State{Name: name}
+	sm.states[name] = state
+	return state
 }
 
 // Event define an event
