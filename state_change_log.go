@@ -51,10 +51,10 @@ func GetStateChangeLogs(model interface{}, db *gorm.DB) []StateChangeLog {
 // ConfigureQorResource used to configure transition for qor admin
 func (stageChangeLog *StateChangeLog) ConfigureQorResource(res resource.Resourcer) {
 	if res, ok := res.(*admin.Resource); ok {
-		if res.Config.Permission == nil {
-			res.Config.Permission = roles.Deny(roles.Update, roles.Anyone).Deny(roles.Create, roles.Anyone)
+		if res.Permission == nil {
+			res.Permission = roles.Deny(roles.Update, roles.Anyone).Deny(roles.Create, roles.Anyone)
 		} else {
-			res.Config.Permission = res.Config.Permission.Deny(roles.Update, roles.Anyone).Deny(roles.Create, roles.Anyone)
+			res.Permission = res.Permission.Deny(roles.Update, roles.Anyone).Deny(roles.Create, roles.Anyone)
 		}
 	}
 }
