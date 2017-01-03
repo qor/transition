@@ -8,7 +8,7 @@ Transition can be used standalone, but it works very nicely with [GORM](https://
 
 ## Documentation
 
-<https://doc.getqor.com/helpers/transition.html>
+<https://doc.getqor.com/plugins/transition.html>
 
 ## License
 
