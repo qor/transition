@@ -218,8 +218,8 @@ func (transition *EventTransition) After(fc func(value interface{}, tx *gorm.DB)
 // ConfigureQorResource used to configure transition for qor admin
 func (transition *Transition) ConfigureQorResource(res resource.Resourcer) {
 	if res, ok := res.(*admin.Resource); ok {
-		if res.GetMeta("State") == nil {
-			res.Meta(&admin.Meta{Name: "State", Permission: roles.Deny(roles.Update, roles.Anyone).Deny(roles.Create, roles.Anyone)})
+		if meta := res.GetMeta("State"); meta.Permission == nil {
+			meta.Permission = roles.Deny(roles.Update, roles.Anyone).Deny(roles.Create, roles.Anyone)
 		}
 
 		res.IndexAttrs(res.IndexAttrs(), "-StateChangeLogs")
