@@ -222,9 +222,20 @@ func (transition *Transition) ConfigureQorResource(res resource.Resourcer) {
 			meta.Permission = roles.Deny(roles.Update, roles.Anyone).Deny(roles.Create, roles.Anyone)
 		}
 
-		res.IndexAttrs(res.IndexAttrs(), "-StateChangeLogs")
-		res.ShowAttrs(res.ShowAttrs(), "-StateChangeLogs", false)
-		res.NewAttrs(res.NewAttrs(), "-StateChangeLogs")
-		res.EditAttrs(res.EditAttrs(), "-StateChangeLogs")
+		res.OverrideIndexAttrs(func() {
+			res.IndexAttrs(res.IndexAttrs(), "-StateChangeLogs")
+		})
+
+		res.OverrideShowAttrs(func() {
+			res.ShowAttrs(res.ShowAttrs(), "-StateChangeLogs")
+		})
+
+		res.OverrideNewAttrs(func() {
+			res.NewAttrs(res.NewAttrs(), "-StateChangeLogs")
+		})
+
+		res.OverrideEditAttrs(func() {
+			res.EditAttrs(res.EditAttrs(), "-StateChangeLogs")
+		})
 	}
 }
