@@ -48,6 +48,20 @@ func GetStateChangeLogs(model interface{}, db *gorm.DB) []StateChangeLog {
 	return changelogs
 }
 
+// GetLastStateChange gets last state change
+func GetLastStateChange(model interface{}, db *gorm.DB) *StateChangeLog {
+	var (
+		changelog StateChangeLog
+		scope      = db.NewScope(model)
+	)
+
+	db.Where("refer_table = ? AND refer_id = ?", scope.TableName(), GenerateReferenceKey(model, db)).Last(&changelog)
+	if changelog.To == "" {
+		return nil
+	}
+	return &changelog
+}
+
 // ConfigureQorResource used to configure transition for qor admin
 func (stageChangeLog *StateChangeLog) ConfigureQorResource(res resource.Resourcer) {
 	if res, ok := res.(*admin.Resource); ok {

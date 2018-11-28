@@ -87,6 +87,35 @@ func TestStateTransition(t *testing.T) {
 	}
 }
 
+func TestGetLastStateChange(t *testing.T) {
+	order := &Order{}
+
+	if err := getStateMachine().Trigger("checkout", order, db, "checkout note"); err != nil {
+		t.Errorf("should not raise any error when trigger event checkout")
+	}
+
+	if err := getStateMachine().Trigger("pay", order, db, "pay note"); err != nil {
+		t.Errorf("should not raise any error when trigger event checkout")
+	}
+
+	if order.GetState() != "paid" {
+		t.Errorf("state doesn't changed to paid")
+	}
+
+	var lastStateChange = transition.GetLastStateChange(order, db)
+	if lastStateChange.To != "paid" {
+		t.Errorf("state to not set")
+	} else {
+		if lastStateChange.From != "checkout" {
+			t.Errorf("state from not set")
+		}
+
+		if lastStateChange.Note != "pay note" {
+			t.Errorf("state note not set")
+		}
+	}
+}
+
 func TestMultipleTransitionWithOneEvent(t *testing.T) {
 	orderStateMachine := getStateMachine()
 	cancellEvent := orderStateMachine.Event("cancel")
