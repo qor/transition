@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jinzhu/gorm"
+	"github.com/pkg/errors"
 	"github.com/qor/admin"
 	"github.com/qor/audited"
 	"github.com/qor/qor/resource"
@@ -37,15 +38,18 @@ func GenerateReferenceKey(model interface{}, db *gorm.DB) string {
 }
 
 // GetStateChangeLogs get state change logs
-func GetStateChangeLogs(model interface{}, db *gorm.DB) []StateChangeLog {
+func GetStateChangeLogs(model interface{}, db *gorm.DB) ([]StateChangeLog, error) {
 	var (
 		changelogs []StateChangeLog
 		scope      = db.NewScope(model)
 	)
 
-	db.Where("refer_table = ? AND refer_id = ?", scope.TableName(), GenerateReferenceKey(model, db)).Find(&changelogs)
+	err := db.Where("refer_table = ? AND refer_id = ?", scope.TableName(), GenerateReferenceKey(model, db)).Find(&changelogs).Error
+	if err != nil {
+		return nil, errors.Wrap(err, "GetStateChangeLogs: sql query failed")
+	}
 
-	return changelogs
+	return changelogs, nil
 }
 
 // ConfigureQorResource used to configure transition for qor admin
