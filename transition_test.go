@@ -1,39 +1,82 @@
-package transition_test
+package transition
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"testing"
 
-	"github.com/jinzhu/gorm"
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/qor/qor/test/utils"
-	"github.com/qor/transition"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 type Order struct {
-	Id      int
+	ID      int
 	Address string
-
-	transition.Transition
+	Transition
 }
 
-var db = utils.TestDB()
+var db = testDB()
+
+func testDB() *gorm.DB {
+	var db *gorm.DB
+	var err error
+	var dbuser, dbpwd, dbname, dbhost = "qor", "qor", "qor_test", "localhost"
+
+	if os.Getenv("DB_USER") != "" {
+		dbuser = os.Getenv("DB_USER")
+	}
+
+	if os.Getenv("DB_PWD") != "" {
+		dbpwd = os.Getenv("DB_PWD")
+	}
+
+	if os.Getenv("DB_NAME") != "" {
+		dbname = os.Getenv("DB_NAME")
+	}
+
+	if os.Getenv("DB_HOST") != "" {
+		dbhost = os.Getenv("DB_HOST")
+	}
+
+	if os.Getenv("TEST_DB") == "postgres" {
+		db, err = gorm.Open(postgres.New(postgres.Config{
+			DSN: fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=disable", dbuser, dbpwd, dbhost, dbname),
+		}), &gorm.Config{})
+	} else if os.Getenv("TEST_DB") == "mysql" {
+		// CREATE USER 'qor'@'localhost' IDENTIFIED BY 'qor';
+		// CREATE DATABASE qor_test;
+		// GRANT ALL ON qor_test.* TO 'qor'@'localhost';
+		db, err = gorm.Open(mysql.New(mysql.Config{
+			DSN: fmt.Sprintf("%s:%s@/%s?charset=utf8&parseTime=True&loc=Local", dbuser, dbpwd, dbname),
+		}), &gorm.Config{})
+	} else {
+		os.Remove("test.db")
+		db, err = gorm.Open(sqlite.Open("test.db"), &gorm.Config{})
+	}
+
+	if err != nil {
+		panic(err)
+	}
+
+	return db
+}
 
 func init() {
-	for _, model := range []interface{}{&Order{}, &transition.StateChangeLog{}} {
-		if err := db.DropTableIfExists(model).Error; err != nil {
-			panic(err)
-		}
-
-		if err := db.AutoMigrate(model).Error; err != nil {
+	for _, model := range []interface{}{&Order{}, &StateChangeLog{}} {
+		var migrator = db.Migrator()
+		if err := migrator.CreateTable(model); err != nil {
 			panic(err)
 		}
 	}
 }
 
-func getStateMachine() *transition.StateMachine {
-	var orderStateMachine = transition.New(&Order{})
+func getStateMachine() *StateMachine {
+	var orderStateMachine = New(&Order{})
 
 	orderStateMachine.Initial("draft")
 	orderStateMachine.State("checkout")
@@ -49,7 +92,7 @@ func getStateMachine() *transition.StateMachine {
 	return orderStateMachine
 }
 
-func CreateOrderAndExecuteTransition(transition *transition.StateMachine, event string, order *Order) error {
+func CreateOrderAndExecuteTransition(transition *StateMachine, event string, order *Order) error {
 	if err := db.Save(order).Error; err != nil {
 		return err
 	}
@@ -71,7 +114,7 @@ func TestStateTransition(t *testing.T) {
 		t.Errorf("state doesn't changed to checkout")
 	}
 
-	var stateChangeLogs = transition.GetStateChangeLogs(order, db)
+	var stateChangeLogs = GetStateChangeLogs(order, db)
 	if len(stateChangeLogs) != 1 {
 		t.Errorf("should get one state change log with GetStateChangeLogs")
 	} else {
@@ -102,7 +145,7 @@ func TestGetLastStateChange(t *testing.T) {
 		t.Errorf("state doesn't changed to paid")
 	}
 
-	var lastStateChange = transition.GetLastStateChange(order, db)
+	var lastStateChange = GetLastStateChange(order, db)
 	if lastStateChange.To != "paid" {
 		t.Errorf("state to not set")
 	} else {

@@ -2,13 +2,14 @@ package transition
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
-	"github.com/jinzhu/gorm"
 	"github.com/qor/admin"
 	"github.com/qor/audited"
 	"github.com/qor/qor/resource"
 	"github.com/qor/roles"
+	"gorm.io/gorm"
 )
 
 // StateChangeLog a model that used to keep state change logs
@@ -23,14 +24,16 @@ type StateChangeLog struct {
 }
 
 // GenerateReferenceKey generate reference key used for change log
-func GenerateReferenceKey(model interface{}, db *gorm.DB) string {
-	var (
-		scope         = db.NewScope(model)
-		primaryValues []string
-	)
-
-	for _, field := range scope.PrimaryFields() {
-		primaryValues = append(primaryValues, fmt.Sprint(field.Field.Interface()))
+func GenerateReferenceKey(model interface{}, scope *gorm.DB) string {
+	var primaryValues = []string{}
+	for _, field := range scope.Statement.Schema.Fields {
+		if !field.PrimaryKey {
+			continue
+		}
+		var value, ok = field.ValueOf(reflect.ValueOf(model))
+		if ok {
+			primaryValues = append(primaryValues, fmt.Sprint(value))
+		}
 	}
 
 	return strings.Join(primaryValues, "::")
@@ -40,10 +43,11 @@ func GenerateReferenceKey(model interface{}, db *gorm.DB) string {
 func GetStateChangeLogs(model interface{}, db *gorm.DB) []StateChangeLog {
 	var (
 		changelogs []StateChangeLog
-		scope      = db.NewScope(model)
+		scope      = db.Model(model)
 	)
 
-	db.Where("refer_table = ? AND refer_id = ?", scope.TableName(), GenerateReferenceKey(model, db)).Find(&changelogs)
+	scope.Statement.Parse(model)
+	db.Where("refer_table = ? AND refer_id = ?", scope.Statement.Table, GenerateReferenceKey(model, scope)).Find(&changelogs)
 
 	return changelogs
 }
@@ -52,10 +56,11 @@ func GetStateChangeLogs(model interface{}, db *gorm.DB) []StateChangeLog {
 func GetLastStateChange(model interface{}, db *gorm.DB) *StateChangeLog {
 	var (
 		changelog StateChangeLog
-		scope      = db.NewScope(model)
+		scope     = db.Model(model)
 	)
 
-	db.Where("refer_table = ? AND refer_id = ?", scope.TableName(), GenerateReferenceKey(model, db)).Last(&changelog)
+	scope.Statement.Parse(model)
+	db.Where("refer_table = ? AND refer_id = ?", scope.Statement.Table, GenerateReferenceKey(model, scope)).Last(&changelog)
 	if changelog.To == "" {
 		return nil
 	}

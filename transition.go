@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jinzhu/gorm"
 	"github.com/qor/admin"
 	"github.com/qor/qor/resource"
 	"github.com/qor/roles"
+	"gorm.io/gorm"
 )
 
 // Transition is a struct, embed it in your struct to enable state machine for the struct
 type Transition struct {
-	State           string
-	StateChangeLogs []StateChangeLog `sql:"-"`
+	State string
+	// StateChangeLogs []StateChangeLog `sql:"-"`
 }
 
 // SetState set state to Stater, just set, won't save it into database
@@ -75,7 +75,7 @@ func (sm *StateMachine) Trigger(name string, value Stater, tx *gorm.DB, notes ..
 	)
 
 	if tx != nil {
-		newTx = tx.New()
+		newTx = tx
 	}
 
 	if stateWas == "" {
@@ -140,10 +140,13 @@ func (sm *StateMachine) Trigger(name string, value Stater, tx *gorm.DB, notes ..
 			}
 
 			if newTx != nil {
-				scope := newTx.NewScope(value)
+				scope := newTx.Model(value)
+				if err := scope.Statement.Parse(value); err != nil {
+					return err
+				}
 				log := StateChangeLog{
-					ReferTable: scope.TableName(),
-					ReferID:    GenerateReferenceKey(value, tx),
+					ReferTable: scope.Statement.Table,
+					ReferID:    GenerateReferenceKey(value, scope),
 					From:       stateWas,
 					To:         transition.to,
 					Note:       strings.Join(notes, ""),
