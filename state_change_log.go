@@ -1,10 +1,11 @@
 package transition
 
 import (
-	"fmt"
+	gormv2 "gorm.io/gorm"
+	"gorm.io/gorm/schema"
 	"strings"
+	"sync"
 
-	"github.com/jinzhu/gorm"
 	"github.com/qor/admin"
 	"github.com/qor/audited"
 	"github.com/qor/qor/resource"
@@ -13,7 +14,7 @@ import (
 
 // StateChangeLog a model that used to keep state change logs
 type StateChangeLog struct {
-	gorm.Model
+	gormv2.Model
 	ReferTable string
 	ReferID    string
 	From       string
@@ -22,44 +23,67 @@ type StateChangeLog struct {
 	audited.AuditedModel
 }
 
+var tableColumn = &sync.Map{}
+
 // GenerateReferenceKey generate reference key used for change log
-func GenerateReferenceKey(model interface{}, db *gorm.DB) string {
-	var (
-		scope         = db.NewScope(model)
-		primaryValues []string
-	)
-
-	for _, field := range scope.PrimaryFields() {
-		primaryValues = append(primaryValues, fmt.Sprint(field.Field.Interface()))
+func GenerateReferenceKey(model interface{}, db *gormv2.DB) (string, error) {
+	ss, err := schema.Parse(model, tableColumn, db.NamingStrategy)
+	if err != nil {
+		return "", err
 	}
+	var primaryValues []string
+	for _, field := range ss.Fields {
+		if field.PrimaryKey {
+			primaryValues = append(primaryValues, field.Name)
+		}
+	}
+	resStr := strings.Join(primaryValues, "::")
+	return resStr, nil
+}
 
-	return strings.Join(primaryValues, "::")
+// GenTableName table name
+func GenTableName(model interface{}, db *gormv2.DB) (string, error) {
+	ss, err := schema.Parse(model, tableColumn, db.NamingStrategy)
+	if err != nil {
+		return "", err
+	}
+	return ss.Table, nil
 }
 
 // GetStateChangeLogs get state change logs
-func GetStateChangeLogs(model interface{}, db *gorm.DB) []StateChangeLog {
+func GetStateChangeLogs(model interface{}, db *gormv2.DB) ([]StateChangeLog, error) {
 	var (
 		changelogs []StateChangeLog
-		scope      = db.NewScope(model)
 	)
-
-	db.Where("refer_table = ? AND refer_id = ?", scope.TableName(), GenerateReferenceKey(model, db)).Find(&changelogs)
-
-	return changelogs
+	tableName, err := GenTableName(model, db)
+	if err != nil {
+		return nil, err
+	}
+	key, err := GenerateReferenceKey(model, db)
+	if err != nil {
+		return nil, err
+	}
+	return changelogs, db.Where("refer_table = ? AND refer_id = ?", tableName, key).Find(&changelogs).Error
 }
 
 // GetLastStateChange gets last state change
-func GetLastStateChange(model interface{}, db *gorm.DB) *StateChangeLog {
+func GetLastStateChange(model interface{}, db *gormv2.DB) (*StateChangeLog, error) {
 	var (
 		changelog StateChangeLog
-		scope      = db.NewScope(model)
 	)
-
-	db.Where("refer_table = ? AND refer_id = ?", scope.TableName(), GenerateReferenceKey(model, db)).Last(&changelog)
-	if changelog.To == "" {
-		return nil
+	tableName, err := GenTableName(model, db)
+	if err != nil {
+		return nil, err
 	}
-	return &changelog
+	key, err := GenerateReferenceKey(model, db)
+	if err != nil {
+		return nil, err
+	}
+	db.Where("refer_table = ? AND refer_id = ?", tableName, key).Last(&changelog)
+	if changelog.To == "" {
+		return nil, nil
+	}
+	return &changelog, nil
 }
 
 // ConfigureQorResource used to configure transition for qor admin
