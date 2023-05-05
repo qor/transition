@@ -1,8 +1,10 @@
 package transition
 
 import (
+	"fmt"
 	gormv2 "gorm.io/gorm"
 	"gorm.io/gorm/schema"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -25,8 +27,21 @@ type StateChangeLog struct {
 
 var tableColumn = &sync.Map{}
 
+func getStructFieldValueByName(myStruct interface{}, columnName string) interface{} {
+	structValue := reflect.ValueOf(myStruct)
+	fieldValue := structValue.FieldByName(columnName)
+	return fieldValue.Interface()
+}
+
 // GenerateReferenceKey generate reference key used for change log
 func GenerateReferenceKey(model interface{}, db *gormv2.DB) (string, error) {
+	modelType := reflect.ValueOf(model)
+	for modelType.Kind() == reflect.Slice || modelType.Kind() == reflect.Array || modelType.Kind() == reflect.Ptr {
+		modelType = modelType.Elem()
+	}
+	if modelType.Kind() != reflect.Struct {
+		return "", fmt.Errorf("modelType.Kind() != reflect.Struct,%d", modelType.Kind())
+	}
 	ss, err := schema.Parse(model, tableColumn, db.NamingStrategy)
 	if err != nil {
 		return "", err
@@ -34,10 +49,12 @@ func GenerateReferenceKey(model interface{}, db *gormv2.DB) (string, error) {
 	var primaryValues []string
 	for _, field := range ss.Fields {
 		if field.PrimaryKey {
-			primaryValues = append(primaryValues, field.Name)
+			primaryValues = append(primaryValues, fmt.Sprintf("%v",
+				modelType.FieldByName(field.Name).Interface()))
 		}
 	}
 	resStr := strings.Join(primaryValues, "::")
+	fmt.Println(resStr)
 	return resStr, nil
 }
 

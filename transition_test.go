@@ -13,7 +13,7 @@ import (
 )
 
 type Order struct {
-	Id      int
+	Id      int `gorm:"primarykey"`
 	Address string
 
 	transition.Transition
@@ -117,7 +117,9 @@ func CreateOrderAndExecuteTransition(transition *transition.StateMachine, event 
 }
 
 func TestStateTransition(t *testing.T) {
-	order := &Order{}
+	order := &Order{
+		Id: 1,
+	}
 
 	if err := getStateMachine().Trigger("checkout", order, db); err != nil {
 		t.Errorf("should not raise any error when trigger event checkout")
@@ -357,4 +359,25 @@ func TestEventOnAfterCallbackError(t *testing.T) {
 	if order.State != "draft" {
 		t.Errorf("state transitioned on Enter callback error")
 	}
+}
+
+type ss int
+
+func TestConvertInterfaceToString(t *testing.T) {
+	var a interface{}
+	a = 1
+	fmt.Println(fmt.Sprintf("%v", a))
+
+	var b interface{}
+	b = 1.1
+	fmt.Println(fmt.Sprintf("%v", b))
+
+	var d interface{}
+	d = "ss"
+	fmt.Println(fmt.Sprintf("%v", d))
+
+	var c interface{}
+	var ss = 1
+	c = ss
+	fmt.Println(fmt.Sprintf("%v", c))
 }
