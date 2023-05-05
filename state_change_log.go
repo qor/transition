@@ -54,7 +54,6 @@ func GenerateReferenceKey(model interface{}, db *gormv2.DB) (string, error) {
 		}
 	}
 	resStr := strings.Join(primaryValues, "::")
-	fmt.Println(resStr)
 	return resStr, nil
 }
 
