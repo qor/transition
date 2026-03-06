@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jinzhu/gorm"
+	"github.com/pkg/errors"
 	"github.com/qor/admin"
 	"github.com/qor/qor/resource"
 	"github.com/qor/roles"
@@ -68,10 +69,15 @@ func (sm *StateMachine) Event(name string) *Event {
 }
 
 // Trigger trigger an event
-func (sm *StateMachine) Trigger(name string, value Stater, tx *gorm.DB, notes ...string) error {
+func (sm *StateMachine) Trigger(name string, value interface{}, tx *gorm.DB, notes ...string) error {
+	stater, ok := value.(Stater)
+	if !ok {
+		return fmt.Errorf("triggerd: passed value does not implement Stater. T:%T", value)
+	}
+
 	var (
 		newTx    *gorm.DB
-		stateWas = value.GetState()
+		stateWas = stater.GetState()
 	)
 
 	if tx != nil {
@@ -80,81 +86,91 @@ func (sm *StateMachine) Trigger(name string, value Stater, tx *gorm.DB, notes ..
 
 	if stateWas == "" {
 		stateWas = sm.initialState
-		value.SetState(sm.initialState)
+		stater.SetState(sm.initialState)
 	}
 
-	if event := sm.events[name]; event != nil {
-		var matchedTransitions []*EventTransition
-		for _, transition := range event.transitions {
-			var validFrom = len(transition.froms) == 0
-			if len(transition.froms) > 0 {
-				for _, from := range transition.froms {
-					if from == stateWas {
-						validFrom = true
-					}
-				}
-			}
+	event, ok := sm.events[name]
+	if !ok {
+		return fmt.Errorf("trigger: failed to perform event %s from state %s", name, stateWas)
+	}
 
-			if validFrom {
-				matchedTransitions = append(matchedTransitions, transition)
+	var matchedTransitions []*EventTransition
+	for _, transition := range event.transitions {
+		var validFrom = len(transition.froms) == 0
+		if len(transition.froms) > 0 {
+			for _, from := range transition.froms {
+				if from == stateWas {
+					validFrom = true
+				}
 			}
 		}
 
-		if len(matchedTransitions) == 1 {
-			transition := matchedTransitions[0]
-
-			// State: exit
-			if state, ok := sm.states[stateWas]; ok {
-				for _, exit := range state.exits {
-					if err := exit(value, newTx); err != nil {
-						return err
-					}
-				}
-			}
-
-			// Transition: before
-			for _, before := range transition.befores {
-				if err := before(value, newTx); err != nil {
-					return err
-				}
-			}
-
-			value.SetState(transition.to)
-
-			// State: enter
-			if state, ok := sm.states[transition.to]; ok {
-				for _, enter := range state.enters {
-					if err := enter(value, newTx); err != nil {
-						value.SetState(stateWas)
-						return err
-					}
-				}
-			}
-
-			// Transition: after
-			for _, after := range transition.afters {
-				if err := after(value, newTx); err != nil {
-					value.SetState(stateWas)
-					return err
-				}
-			}
-
-			if newTx != nil {
-				scope := newTx.NewScope(value)
-				log := StateChangeLog{
-					ReferTable: scope.TableName(),
-					ReferID:    GenerateReferenceKey(value, tx),
-					From:       stateWas,
-					To:         transition.to,
-					Note:       strings.Join(notes, ""),
-				}
-				return newTx.Save(&log).Error
-			}
-
-			return nil
+		if validFrom {
+			matchedTransitions = append(matchedTransitions, transition)
 		}
 	}
-	return fmt.Errorf("failed to perform event %s from state %s", name, stateWas)
+
+	if n := len(matchedTransitions); n != 1 {
+		return fmt.Errorf("trigger: did not find one transtion but %d", n)
+	}
+
+	transition := matchedTransitions[0]
+
+	// State: exit
+	if state, ok := sm.states[stateWas]; ok {
+		for _, exit := range state.exits {
+			if err := exit(value, newTx); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Transition: before
+	for _, before := range transition.befores {
+		if err := before(value, newTx); err != nil {
+			return err
+		}
+	}
+
+	stater.SetState(transition.to)
+
+	// State: enter
+	if state, ok := sm.states[transition.to]; ok {
+		for _, enter := range state.enters {
+			if err := enter(value, newTx); err != nil {
+				stater.SetState(stateWas)
+				return err
+			}
+		}
+	}
+
+	// Transition: after
+	for _, after := range transition.afters {
+		if err := after(value, newTx); err != nil {
+			stater.SetState(stateWas)
+			return err
+		}
+	}
+
+	if newTx != nil {
+		if err := newTx.Save(value).Error; err != nil {
+			return errors.Wrap(err, "trigger: failed to save value")
+		}
+		scope := newTx.NewScope(stater)
+		log := StateChangeLog{
+			ReferTable: scope.TableName(),
+			ReferID:    GenerateReferenceKey(stater, tx),
+			From:       stateWas,
+			To:         transition.to,
+			Note:       strings.Join(notes, ""),
+		}
+		if err := newTx.Save(&log).Error; err != nil {
+			return errors.Wrap(err, "trigger: failed to save stateChangeLog")
+		}
+		return nil
+	}
+
+	return nil
 }
 
 // State contains State information, including enter, exit hooks
