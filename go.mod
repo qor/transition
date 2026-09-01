@@ -1,6 +1,6 @@
 module github.com/qor/transition
 
-go 1.25.0
+go 1.26
 
 require (
 	github.com/jinzhu/gorm v1.9.16
