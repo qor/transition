@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"github.com/jinzhu/gorm"
-	_ "github.com/mattn/go-sqlite3"
-
 	"github.com/qor/qor/test/utils"
 	"github.com/qor/transition"
 )
@@ -49,19 +47,9 @@ func getStateMachine() *transition.StateMachine {
 	return orderStateMachine
 }
 
-func CreateOrderAndExecuteTransition(transition *transition.StateMachine, event string, order *Order) error {
-	if err := db.Save(order).Error; err != nil {
-		return err
-	}
-
-	if err := transition.Trigger(event, order, db); err != nil {
-		return err
-	}
-	return nil
-}
-
 func TestStateTransition(t *testing.T) {
 	order := &Order{}
+	order.Address = t.Name()
 
 	if err := getStateMachine().Trigger("checkout", order, db); err != nil {
 		t.Errorf("should not raise any error when trigger event checkout")
@@ -71,9 +59,12 @@ func TestStateTransition(t *testing.T) {
 		t.Errorf("state doesn't changed to checkout")
 	}
 
-	var stateChangeLogs = transition.GetStateChangeLogs(order, db)
-	if len(stateChangeLogs) != 1 {
-		t.Errorf("should get one state change log with GetStateChangeLogs")
+	stateChangeLogs, err := transition.GetStateChangeLogs(order, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(stateChangeLogs); n != 1 {
+		t.Errorf("should get one state change log with GetStateChangeLogs got %d", n)
 	} else {
 		var stateChangeLog = stateChangeLogs[0]
 
@@ -123,7 +114,9 @@ func TestMultipleTransitionWithOneEvent(t *testing.T) {
 	cancellEvent.To("paid_cancelled").From("paid", "processed")
 
 	unpaidOrder1 := &Order{}
+	unpaidOrder1.Address = t.Name() + ":unpaid1"
 	if err := orderStateMachine.Trigger("cancel", unpaidOrder1, db); err != nil {
+		t.Error(err)
 		t.Errorf("should not raise any error when trigger event cancel")
 	}
 
@@ -132,8 +125,10 @@ func TestMultipleTransitionWithOneEvent(t *testing.T) {
 	}
 
 	unpaidOrder2 := &Order{}
+	unpaidOrder2.Address = t.Name() + ":unpaid2"
 	unpaidOrder2.State = "draft"
 	if err := orderStateMachine.Trigger("cancel", unpaidOrder2, db); err != nil {
+		t.Error(err)
 		t.Errorf("should not raise any error when trigger event cancel")
 	}
 
@@ -142,8 +137,10 @@ func TestMultipleTransitionWithOneEvent(t *testing.T) {
 	}
 
 	paidOrder := &Order{}
+	paidOrder.Address = t.Name() + ":paid"
 	paidOrder.State = "paid"
 	if err := orderStateMachine.Trigger("cancel", paidOrder, db); err != nil {
+		t.Error(err)
 		t.Errorf("should not raise any error when trigger event cancel")
 	}
 
@@ -154,7 +151,7 @@ func TestMultipleTransitionWithOneEvent(t *testing.T) {
 
 func TestStateCallbacks(t *testing.T) {
 	orderStateMachine := getStateMachine()
-	order := &Order{}
+	order := &Order{Address: t.Name()}
 
 	address1 := "I'm an address should be set when enter checkout"
 	address2 := "I'm an address should be set when exit checkout"
@@ -167,6 +164,7 @@ func TestStateCallbacks(t *testing.T) {
 	})
 
 	if err := orderStateMachine.Trigger("checkout", order, db); err != nil {
+		t.Error(err)
 		t.Errorf("should not raise any error when trigger event checkout")
 	}
 
@@ -175,6 +173,7 @@ func TestStateCallbacks(t *testing.T) {
 	}
 
 	if err := orderStateMachine.Trigger("pay", order, db); err != nil {
+		t.Error(err)
 		t.Errorf("should not raise any error when trigger event pay")
 	}
 
